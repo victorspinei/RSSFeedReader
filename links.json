@@ -1,0 +1,8 @@
+{
+	"news": [
+		"https://en.wikipedia.org/w/api.php?action=featuredfeed\u0026feed=featured\u0026feedformat=rss"
+	],
+	"uncategorized": [
+		"https://feeds.bbci.co.uk/news/world/asia/rss.xml"
+	]
+}
