@@ -1,14 +1,15 @@
 package main
 
 import (
-	"fmt"
 	"bufio"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/url"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
-	"net/url"
-	"encoding/json"
-	"io/ioutil"
 )
 
 var cliName string = "RSSFeedReader"
@@ -32,12 +33,12 @@ func clearScreen() {
     cmd.Run()
 }
 
-func handleInvalidCmd(cmd string, err string) {
-	defer printUnknown(cmd, err)
+func handleInvalidCmd(err string) {
+	defer printUnknown(querry[0], err)
 }
 
-func handleCmd(cmd string) {
-	handleInvalidCmd(cmd, "command not found")
+func handleCmd() {
+	handleInvalidCmd("command not found")
 }
 
 func cleanInput(text string) string {
@@ -67,7 +68,7 @@ func formatInput(text string) []string {
 func validateUrl(text string) bool {
 	_, err := url.ParseRequestURI(text)
 	if err != nil {
-		handleInvalidCmd(".add", "invalid url")
+		handleInvalidCmd("invalid url")
 		return false
 	}
 	return true
@@ -76,10 +77,11 @@ func validateUrl(text string) bool {
 func addLink() {
 	size := len(querry)
 	if size != 2 && size != 3 {
-		handleInvalidCmd(".add", "invalid number of arguments")
+		handleInvalidCmd("invalid number of arguments")
 		return
 	}
-	var url string = querry[1]
+	var s string = querry[1]
+	u, _ := url.Parse(s)
 	var category string
 
 	if size == 2 {
@@ -88,28 +90,31 @@ func addLink() {
 		category = querry[2]
 	}
 
-	if validateUrl(url) {
-		link_map[category] = append(link_map[category], url)
+	if !validateUrl(s) {
+		handleInvalidCmd("invalid url")
+		return
 	}
+	link_map[category] = append(link_map[category], feed{u.Host, s})
 }
 
 func removeLink() {
 	size := len(querry)
 	if size != 2 {
-		handleInvalidCmd(".remove", "invalid number of arguments")
+		handleInvalidCmd("invalid number of arguments")
 		return
 	}
-	var url_to_be_deleted string = querry[1]
+	var feedToRemove string = querry[1]
 	for key, arr := range link_map {
-		newArr := arr[:0]
-		for _, url := range arr {
-			if !strings.EqualFold(url_to_be_deleted, url) {
-				newArr = append(newArr, url)
+		newArr := []feed{}
+		for _, fd := range arr {
+			if !strings.EqualFold(feedToRemove, fd.Name) {
+				newArr = append(newArr, fd)
 			}
 		}
-		link_map[key] = newArr
 		if len(newArr) == 0 {
 			delete(link_map, key)
+		} else {
+			link_map[key] = newArr
 		}
 	}
 }
@@ -117,56 +122,74 @@ func removeLink() {
 func changeCategory() {
 	size := len(querry)
 	if size != 3 {
-		handleInvalidCmd(".category", "invalid number of arguments")
+		handleInvalidCmd("invalid number of arguments")
 		return
 	}
 
+	name := querry[1]
 	category := querry[2]
 
-	newQuerry := querry[:2]
-	querry = newQuerry
+	var link string
+	found := false
 
-	removeLink()
+	for key, arr := range link_map {
+		for i, fd := range arr {
+			if strings.EqualFold(name, fd.Name) {
+				link = fd.Link
+				link_map[key] = append(arr[:i], arr[i+1:]...)
+				if len(link_map[key]) == 0 {
+					delete(link_map, key)
+				}
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		handleInvalidCmd("feed not found")
+		return
+	}
 
-	querry = append(querry, category)
+	querry = []string{".add", link, category}
 	addLink()
+
 }
 
 func showLinks() {
 	size := len(querry)
 	if size != 1 && size != 2 {
-		handleInvalidCmd(".show", "invalid number of arguments")
+		handleInvalidCmd("invalid number of arguments")
 		return
 	}
 	fmt.Println()
 	if size == 2 {
 		category := querry[1]
-		fmt.Println()
 		fmt.Printf("%s:\n", category)
 		for idx, itm := range link_map[category] {
 			ch := ";"
 			if idx == len(link_map[category]) - 1 {
 				ch = "."
 			} 
-			fmt.Printf("    %d. %s %s\n", idx + 1, itm, ch)
+			fmt.Printf("    %d. %s %s\n", idx + 1, itm.Name, ch)
 		}
 
 		fmt.Println()
 	} else {
 		for category, arr := range link_map {
-			fmt.Println()
 			fmt.Printf("%s:\n", category)
 			for idx, itm := range arr {
 				ch := ";"
 				if idx == len(arr) - 1 {
 					ch = "."
 				} 
-				fmt.Printf("    %d. %s %s\n", idx + 1, itm, ch)
+				fmt.Printf("    %d. %s %s\n", idx + 1, itm.Name, ch)
 			}
 			fmt.Println()
 		}
 	}
-	fmt.Println()
 }
 
 func loadJsonFile() {
@@ -190,7 +213,56 @@ func saveLinksToFile() {
 	}
 }
 
-var link_map = make(map[string][]string)
+func openFeed() {
+	size := len(querry)
+	if size != 2 {
+		handleInvalidCmd("invalid number of arguments")
+		return
+	}
+
+	name := querry[1]
+	var link string
+	found := false
+
+	for _, arr := range link_map {
+		for i := range arr {
+			if strings.EqualFold(name, arr[i].Name) {
+				link = arr[i].Link
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		handleInvalidCmd("feed not found")
+		return
+	}
+
+	resp, httpErr := http.Get(link)
+	if httpErr != nil {
+		handleInvalidCmd("error getting the data")
+		return
+	}
+
+	body, readingErr := ioutil.ReadAll(resp.Body)
+	if readingErr != nil {
+		handleInvalidCmd("error reading the data")
+		return
+	}
+
+	fmt.Println(string(body))
+}
+
+type feed struct {
+	Name string
+	Link string
+}
+
+var link_map map[string][]feed
+
 var querry []string
 
 var commands = map[string]interface{} {
@@ -200,10 +272,13 @@ var commands = map[string]interface{} {
 	".remove": removeLink,
 	".category": changeCategory,
 	".show": showLinks,
+	".open": openFeed,
 }
 
 func main() {
 	loadJsonFile();
+
+	//fmt.Println(link_map)
 
 	reader := bufio.NewScanner(os.Stdin)
 	printPrompt()
@@ -221,7 +296,7 @@ func main() {
 			saveLinksToFile()
 			return
 		} else {
-			handleCmd(cmd)
+			handleCmd()
 		}
 		printPrompt()
 	}
