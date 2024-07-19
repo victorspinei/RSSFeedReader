@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io/ioutil"
 	"net/url"
@@ -10,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/PuerkitoBio/goquery"
 )
 
 var cliName string = "RSSFeedReader"
@@ -24,8 +27,30 @@ func printUnknown(cmd string, err string) {
 }
 
 func displayHelp() {
-	fmt.Println("help")
+	helpText := `
+	Commands:
+	.help                     Display this help message
+	.clear                    Clear the screen
+	.add <URL> [category]     Add a new RSS feed URL with an optional category (default: uncategorized)
+	.remove <name>            Remove an RSS feed by its name
+	.category <name> <cat>    Change the category of an existing RSS feed
+	.show [category]          Show all RSS feeds, optionally filtered by category
+	.open <name>              Open and display the contents of the specified RSS feed
+	.exit                     Save changes and exit the program
+
+	Examples:
+	.add https://example.com/feed.xml news        Add a feed to the 'news' category
+	.remove example.com                           Remove the feed named 'example.com'
+	.category example.com tech                    Change the category of 'example.com' feed to 'tech'
+	.show                                         Show all feeds
+	.show news                                    Show feeds in the 'news' category
+	.open example.com                             Open the 'example.com' feed and display its contents
+
+	Use these commands to manage your RSS feeds efficiently.
+	`
+	fmt.Println(helpText)
 }
+
 
 func clearScreen() {
     cmd := exec.Command("clear")
@@ -241,19 +266,92 @@ func openFeed() {
 		return
 	}
 
-	resp, httpErr := http.Get(link)
-	if httpErr != nil {
+	resp, err := http.Get(link)
+	if err != nil {
 		handleInvalidCmd("error getting the data")
 		return
 	}
+	defer resp.Body.Close()
 
-	body, readingErr := ioutil.ReadAll(resp.Body)
-	if readingErr != nil {
+	if resp.StatusCode != http.StatusOK {
+		handleInvalidCmd("error: non-200 status code")
+		return
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
 		handleInvalidCmd("error reading the data")
 		return
 	}
 
-	fmt.Println(string(body))
+	var feedData Data
+	if err := xml.Unmarshal(body, &feedData); err != nil {
+		handleInvalidCmd("error unmarshalling XML")
+		return
+	}
+
+	// Print the unmarshalled data to check its contents
+	fmt.Println("  Title:", feedData.Channel.Title)
+	fmt.Println("  Link:", feedData.Channel.Link)
+	fmt.Println("  Description:", feedData.Channel.Description)
+	fmt.Println("  Language:", feedData.Channel.Language)
+	fmt.Println("  LastBuildDate:", feedData.Channel.LastBuildDate)
+	fmt.Println("  Generator:", feedData.Channel.Generator)
+  	for i, item := range feedData.Channel.Items {
+		cleanedDescription := cleanHTML(item.Description)
+		fmt.Printf("Item %d", i+1)
+  		fmt.Printf("\tTitle: %s\n", item.Title)
+  		fmt.Printf("\tLink: %s\n", item.Link)
+  		fmt.Printf("\tDescription: %s\n", cleanedDescription)
+		fmt.Println("---------------------------------------------------")
+  	}
+}
+
+func cleanHTML(htmlStr string) string {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlStr))
+    	if err != nil {
+        	return htmlStr
+	}
+
+	// Remove script and style tags
+	doc.Find("script, style").Each(func(i int, s *goquery.Selection) {
+		s.Remove()
+	})
+
+	// Remove all classes and styles
+	doc.Find("*").Each(func(i int, s *goquery.Selection) {
+		s.RemoveAttr("class")
+		s.RemoveAttr("style")
+	})
+
+	// Remove empty elements
+	doc.Find("*").Each(func(i int, s *goquery.Selection) {
+		if s.Text() == "" {
+			s.Remove()
+		}
+	})
+
+    	return doc.Text()
+}
+
+type Data struct {
+	Channel Channel `xml:"channel"`
+}
+
+type Channel struct {
+    Title         string `xml:"title"`
+    Link          string `xml:"link"`
+    Description   string `xml:"description"`
+    Language      string `xml:"language"`
+    LastBuildDate string `xml:"lastBuildDate"`
+    Generator     string `xml:"generator"`
+    Items         []Item `xml:"item"`
+}
+
+type Item struct {
+    Title       string `xml:"title"`
+    Link        string `xml:"link"`
+    Description string `xml:"description"`
 }
 
 type feed struct {

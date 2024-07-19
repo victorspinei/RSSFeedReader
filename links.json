@@ -1,4 +1,10 @@
 {
+	"dev": [
+		{
+			"Name": "lukesmith.xyz",
+			"Link": "https://lukesmith.xyz/index.xml"
+		}
+	],
 	"news": [
 		{
 			"Name": "en.wikipedia.org",
