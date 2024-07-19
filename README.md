@@ -1,7 +1,3 @@
-Certainly! Here’s a basic template for your README file, tailored to your Go RSS feed reader project:
-
----
-
 # RSSFeedReader
 
 ## Overview
@@ -111,6 +107,3 @@ To contribute to the project:
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
----
-
-Feel free to adjust the content to better fit your project specifics or any additional features you might want to highlight.
