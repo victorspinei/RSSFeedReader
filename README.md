@@ -16,7 +16,7 @@
 
 ## Prerequisites
 
-- Go 1.19 or later
+- Go 1.22.5 or later
 - `github.com/PuerkitoBio/goquery` package for HTML parsing
 
 ## Installation
